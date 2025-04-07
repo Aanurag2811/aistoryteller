@@ -1,4 +1,3 @@
-// Constants
 const GENRES = [
     'adventure',
     'fantasy',
@@ -14,7 +13,6 @@ const GENRES = [
 
 const PORTS = [3002, 3003, 3004, 3005, 30021];
 
-// DOM Elements
 const storyForm = document.getElementById('storyForm');
 const promptInput = document.getElementById('prompt');
 const genreButtons = document.querySelectorAll('.genre-button');
@@ -28,22 +26,18 @@ const errorText = document.querySelector('.error-text');
 const voiceSelect = document.getElementById('voice-select');
 const speedSelect = document.getElementById('speed-select');
 
-// State
 let currentGenre = 'story';
 let isReading = false;
 let currentVoice = null;
 let voices = [];
 
-// Initialize speech synthesis
 const speechSynthesis = window.speechSynthesis;
 
-// Event Listeners
 storyForm.addEventListener('submit', handleSubmit);
 genreButtons.forEach(button => {
     button.addEventListener('click', () => handleGenreChange(button));
 });
 
-// Voice selection change handler
 if (voiceSelect) {
     voiceSelect.addEventListener('change', (e) => {
         const selectedIndex = parseInt(e.target.value);
@@ -55,7 +49,6 @@ if (voiceSelect) {
     });
 }
 
-// Speed change handler
 if (speedSelect) {
     speedSelect.addEventListener('change', () => {
         if (isReading) {
@@ -65,7 +58,6 @@ if (speedSelect) {
     });
 }
 
-// Read Aloud Button Event Listener
 if (readAloudButton) {
     readAloudButton.addEventListener('click', () => {
         if (isReading) {
@@ -79,19 +71,16 @@ if (readAloudButton) {
 saveButton.addEventListener('click', saveStory);
 dismissButton?.addEventListener('click', dismissError);
 
-// Handle form submission
 async function handleSubmit(e) {
     e.preventDefault();
     
     const prompt = promptInput.value.trim();
     if (!prompt) return;
 
-    // Hide any existing error message
     if (errorMessage) {
         errorMessage.classList.add('hidden');
     }
 
-    // Show loading state
     storyDisplay.classList.remove('hidden');
     storyContent.innerHTML = '<div class="loading-spinner"></div>';
     
@@ -133,20 +122,17 @@ async function handleSubmit(e) {
         }
     }
     
-    // Only show error if all attempts failed
     if (!success) {
         showError('Unable to connect to the server. Please try again.');
     }
 }
 
-// Handle genre change
 function handleGenreChange(button) {
     genreButtons.forEach(btn => btn.classList.remove('active'));
     button.classList.add('active');
     currentGenre = button.dataset.genre;
 }
 
-// Format story content
 function formatStoryContent(content) {
     if (!content) return '<p>No content generated</p>';
     const paragraphs = content.split('\n\n');
@@ -155,7 +141,6 @@ function formatStoryContent(content) {
         .join('');
 }
 
-// Format nursery rhyme content
 function formatNurseryRhymeContent(content) {
     if (!content) return '<p>No content generated</p>';
     const lines = content.split('\n');
@@ -164,7 +149,6 @@ function formatNurseryRhymeContent(content) {
         .join('');
 }
 
-// Format poem content
 function formatPoemContent(content) {
     if (!content) return '<p>No content generated</p>';
     const lines = content.split('\n');
@@ -173,7 +157,6 @@ function formatPoemContent(content) {
         .join('');
 }
 
-// Update story meta information
 function updateStoryMeta(data) {
     const metaContainer = document.querySelector('.story-meta');
     const wordCount = data.content.split(/\s+/).length;
@@ -184,7 +167,6 @@ function updateStoryMeta(data) {
     `;
 }
 
-// Load voices function
 function loadVoices() {
     voices = speechSynthesis.getVoices();
     
@@ -207,7 +189,6 @@ function loadVoices() {
     }
 }
 
-// Start reading function
 function startReading() {
     if (!storyContent || !storyContent.textContent.trim()) return;
     
@@ -239,7 +220,6 @@ function startReading() {
     speechSynthesis.speak(utterance);
 }
 
-// Stop reading function
 function stopReading() {
     speechSynthesis.cancel();
     isReading = false;
@@ -249,15 +229,12 @@ function stopReading() {
     }
 }
 
-// Initialize voices
 if (speechSynthesis.onvoiceschanged !== undefined) {
     speechSynthesis.onvoiceschanged = loadVoices;
 }
 
-// Initial load of voices
 loadVoices();
 
-// Save story
 function saveStory() {
     const story = {
         title: promptInput.value,
@@ -266,18 +243,14 @@ function saveStory() {
         timestamp: new Date().toISOString()
     };
     
-    // Get existing stories
     const savedStories = JSON.parse(localStorage.getItem('savedStories') || '[]');
     savedStories.push(story);
     
-    // Save to localStorage
     localStorage.setItem('savedStories', JSON.stringify(savedStories));
     
-    // Show success message
     showSuccess('Story saved successfully!');
 }
 
-// Show error message
 function showError(message) {
     if (!message || !errorText || !errorMessage) return;
     if (message.trim()) {
@@ -286,7 +259,6 @@ function showError(message) {
     }
 }
 
-// Show success message
 function showSuccess(message) {
     const successMessage = document.createElement('div');
     successMessage.className = 'success-message';
@@ -299,18 +271,15 @@ function showSuccess(message) {
     
     document.querySelector('.main-content').prepend(successMessage);
     
-    // Remove after 3 seconds
     setTimeout(() => {
         successMessage.remove();
     }, 3000);
 }
 
-// Dismiss error message
 function dismissError() {
     errorMessage.classList.add('hidden');
 }
 
-// Initialize voices
 async function initializeVoices() {
     return new Promise((resolve) => {
         const checkVoices = () => {
@@ -325,19 +294,15 @@ async function initializeVoices() {
     });
 }
 
-// Initialize the application
 async function initialize() {
     try {
-        // Hide error message on start
         if (errorMessage) {
             errorMessage.classList.add('hidden');
         }
         
-        // Initialize voices
         await initializeVoices();
         loadVoices();
         
-        // Add voices changed event listener
         if (speechSynthesis.onvoiceschanged !== undefined) {
             speechSynthesis.onvoiceschanged = loadVoices;
         }
@@ -348,5 +313,4 @@ async function initialize() {
     }
 }
 
-// Start the application
 initialize(); 
