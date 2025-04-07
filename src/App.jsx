@@ -22,7 +22,7 @@ function App() {
       
       for (const port of ports) {
         try {
-          const fetchResponse = await fetch(`https://aistoryteller-ten.vercel.app/api/story/start`, {
+          const fetchResponse = await fetch(`/api/story/start`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
