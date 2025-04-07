@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { OpenAI } from 'openai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import fs from 'fs';
@@ -22,10 +22,34 @@ const getRandomElement = (array) => {
   return array[Math.floor(Math.random() * array.length)];
 };
 
-// Setup OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  timeout: 30000, // 30 second timeout
+// Setup Gemini AI client
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ 
+  model: "gemini-pro",
+  generationConfig: {
+    temperature: 0.3,
+    topP: 0.9,
+    topK: 40,
+    maxOutputTokens: 4096,
+  },
+  safetySettings: [
+    {
+      category: "HARM_CATEGORY_HARASSMENT",
+      threshold: "BLOCK_ONLY_HIGH"
+    },
+    {
+      category: "HARM_CATEGORY_HATE_SPEECH",
+      threshold: "BLOCK_ONLY_HIGH"
+    },
+    {
+      category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+      threshold: "BLOCK_ONLY_HIGH"
+    },
+    {
+      category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+      threshold: "BLOCK_ONLY_HIGH"
+    }
+  ]
 });
 
 // Story state management (in memory for simplicity, could use DB in production)
@@ -455,13 +479,47 @@ app.post('/api/story/start', async (req, res) => {
   try {
     const { prompt, genre, setting } = req.body;
     console.log('Received request with data:', { prompt, genre, setting });
+
+    // Check if we should use mock story first
+    if (!process.env.GEMINI_API_KEY) {
+      return generateMockResponse(req, res);
+    }
+
+    let attempts = 0;
+    const maxAttempts = 3;
+    let storyContent = '';
     
-    // Generate a complete story
-    console.log('Generating complete story');
-    const storyContent = generateMockStory(prompt, genre, setting);
+    while (attempts < maxAttempts) {
+      try {
+        const result = await model.generateContent([
+          { text: `Generate a ${genre} story${setting ? ` set in ${setting}` : ''}.` },
+          { text: prompt || `Tell me a ${genre} story` }
+        ]);
+        
+        storyContent = result.response.text();
+        
+        if (storyContent && storyContent.length > 0) {
+          break;
+        }
+        
+        attempts++;
+        console.log(`Empty response, retrying (${attempts}/${maxAttempts})`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+      } catch (err) {
+        attempts++;
+        console.error(`Error on attempt ${attempts}/${maxAttempts}:`, err.message);
+        
+        if (attempts >= maxAttempts) {
+          throw err;
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
+      }
+    }
+
     const storyId = Date.now().toString();
     
-    // Store story state
     stories.set(storyId, {
       id: storyId,
       content: [storyContent],
@@ -472,101 +530,127 @@ app.post('/api/story/start', async (req, res) => {
         { role: "assistant", content: storyContent }
       ]
     });
-    
-    res.json({ 
+
+    res.json({
       storyId,
       content: storyContent,
       success: true
     });
-    
+
   } catch (error) {
     console.error('Error generating story:', error);
-    
-    // Generate a fallback response instead of returning an error
-    let fallbackContent;
-    const { prompt, genre, setting } = req.body;
-    
-    if (genre === 'poem') {
-      fallbackContent = `${prompt || 'Inspiration'}\n
-Words flow like water,
-Thoughts dance across the page,
-Creating beauty from chaos,
-A moment captured in time.\n
-Each line a heartbeat,
-Each verse a breath,
-In the rhythm of creation,
-We find ourselves.`;
-    } else {
-      fallbackContent = `Once upon a time, in a ${setting || 'faraway place'}, ${prompt || 'an adventure'} began. 
-      
-Though unexpected challenges arose, determination and courage prevailed. 
-
-The journey might not follow the expected path, but sometimes the most beautiful stories emerge from the unexpected turns of life.`;
-    }
-    
-    const storyId = Date.now().toString();
-    
-    stories.set(storyId, {
-      id: storyId,
-      content: [fallbackContent],
-      completed: true,
-      messages: [
-        { role: "system", content: `Generate a ${genre} story` },
-        { role: "user", content: prompt || `Tell me a ${genre} story` },
-        { role: "assistant", content: fallbackContent }
-      ]
-    });
-    
-    res.json({
-      storyId,
-      content: fallbackContent,
-      success: true
-    });
+    return generateMockResponse(req, res);
   }
 });
 
 app.post('/api/story/continue', async (req, res) => {
   try {
     const { storyId, userInput } = req.body;
-    
+
     if (!stories.has(storyId)) {
       return res.status(404).json({ error: 'Story not found' });
     }
-    
+
     const story = stories.get(storyId);
-    
+
     // Add user input to messages
     story.messages.push({ role: "user", content: userInput });
-    
-    // Generate mock continuation
-    console.log('Using mock continuation');
-    const continuation = `You decided to ${userInput.toLowerCase().includes('mountain') ? 'climb the misty mountain' : 
-      userInput.toLowerCase().includes('valley') ? 'follow the road through the valley' : 
-      userInput.toLowerCase().includes('forest') ? 'take the hidden forest trail' : 
-      'forge your own path'}.
-      
-As you continue on your journey, you encounter ${Math.random() > 0.5 ? 'a mysterious stranger who offers to guide you' : 'an unexpected obstacle blocking your way'}.
 
-What will you do next?`;
+    if (!process.env.GEMINI_API_KEY) {
+      return generateMockContinuation(req, res);
+    }
+
+    let attempts = 0;
+    const maxAttempts = 3;
+    let continuation = '';
     
-    // Update story state
+    while (attempts < maxAttempts) {
+      try {
+        const chat = model.startChat({
+          history: story.messages.map(msg => ({
+            role: msg.role === "assistant" ? "model" : "user",
+            parts: [{ text: msg.content }]
+          }))
+        });
+
+        const result = await chat.sendMessage(userInput);
+        continuation = result.response.text();
+        
+        if (continuation && continuation.length > 0) {
+          break;
+        }
+        
+        attempts++;
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+      } catch (err) {
+        attempts++;
+        if (attempts >= maxAttempts) {
+          throw err;
+        }
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
+      }
+    }
+
     story.content.push(continuation);
     story.messages.push({ role: "assistant", content: continuation });
-    
-    res.json({ 
+
+    res.json({
       content: continuation,
       success: true
     });
-    
+
   } catch (error) {
     console.error('Error continuing story:', error);
-    res.status(500).json({ 
-      error: 'Failed to continue story', 
-      message: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
+    return generateMockContinuation(req, res);
   }
 });
+
+// Helper function for mock responses
+const generateMockResponse = (req, res) => {
+  const { prompt, genre, setting } = req.body;
+  const storyContent = generateMockStory(prompt, genre, setting);
+  const storyId = Date.now().toString();
+
+  stories.set(storyId, {
+    id: storyId,
+    content: [storyContent],
+    completed: true,
+    messages: [
+      { role: "system", content: `Generate a ${genre} story` },
+      { role: "user", content: prompt || `Tell me a ${genre} story` },
+      { role: "assistant", content: storyContent }
+    ]
+  });
+
+  return res.json({
+    storyId,
+    content: storyContent,
+    success: true
+  });
+};
+
+const generateMockContinuation = (req, res) => {
+  const { storyId, userInput } = req.body;
+  const story = stories.get(storyId);
+  
+  const continuation = `You decided to ${userInput.toLowerCase().includes('mountain') ? 'climb the misty mountain' : 
+    userInput.toLowerCase().includes('valley') ? 'follow the road through the valley' : 
+    userInput.toLowerCase().includes('forest') ? 'take the hidden forest trail' : 
+    'forge your own path'}.
+    
+As you continue on your journey, you encounter ${Math.random() > 0.5 ? 'a mysterious stranger who offers to guide you' : 'an unexpected obstacle blocking your way'}.
+
+What will you do next?`;
+
+  story.content.push(continuation);
+  story.messages.push({ role: "assistant", content: continuation });
+
+  return res.json({
+    content: continuation,
+    success: true
+  });
+};
 
 // Get story history
 app.get('/api/story/:storyId', (req, res) => {
@@ -671,4 +755,4 @@ const startServer = (port) => {
 };
 
 // Start the server with the initial port
-startServer(PORT); 
+startServer(PORT);
